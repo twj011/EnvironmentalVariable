@@ -1,0 +1,30 @@
+{
+  "name": "environmentalvariable",
+  "version": "1.0.0",
+  "description": "一个现代化的 Windows 环境变量管理工具，提供智能 PATH 优化、备份恢复和 WebDAV 同步功能。",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "vite": "^7.3.0"
+  }
+}

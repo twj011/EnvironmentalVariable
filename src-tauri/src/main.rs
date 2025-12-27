@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::fs;
 use winreg::enums::*;
 use winreg::RegKey;
 
@@ -226,6 +227,83 @@ fn broadcast_env_change() {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Backup {
+    timestamp: String,
+    user_vars: HashMap<String, String>,
+    system_vars: HashMap<String, String>,
+}
+
+// 创建备份
+#[tauri::command]
+fn create_backup() -> Result<String, String> {
+    let user_vars = get_user_variables()?;
+    let system_vars = get_system_variables()?;
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let backup = Backup { timestamp: timestamp.clone(), user_vars, system_vars };
+
+    let backup_dir = std::env::current_dir()
+        .map_err(|e| e.to_string())?
+        .join("backups");
+    fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+
+    let filename = format!("env_backup_{}.json", timestamp);
+    let filepath = backup_dir.join(&filename);
+    let json = serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())?;
+    fs::write(&filepath, json).map_err(|e| e.to_string())?;
+
+    Ok(filename)
+}
+
+// 列出备份
+#[tauri::command]
+fn list_backups() -> Result<Vec<String>, String> {
+    let backup_dir = std::env::current_dir()
+        .map_err(|e| e.to_string())?
+        .join("backups");
+
+    if !backup_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let entries = fs::read_dir(&backup_dir).map_err(|e| e.to_string())?;
+    let mut backups = vec![];
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.ends_with(".json") {
+                    backups.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    backups.sort();
+    backups.reverse();
+    Ok(backups)
+}
+
+// 恢复备份
+#[tauri::command]
+fn restore_backup(filename: String) -> Result<(), String> {
+    let backup_dir = std::env::current_dir()
+        .map_err(|e| e.to_string())?
+        .join("backups");
+    let filepath = backup_dir.join(&filename);
+
+    let json = fs::read_to_string(&filepath).map_err(|e| e.to_string())?;
+    let backup: Backup = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+
+    // 恢复用户变量
+    for (name, value) in backup.user_vars {
+        set_user_variable(name, value)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(not(windows))]
 fn broadcast_env_change() {}
 
@@ -240,6 +318,9 @@ fn main() {
             delete_system_variable,
             analyze_path,
             suggest_optimizations,
+            create_backup,
+            list_backups,
+            restore_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

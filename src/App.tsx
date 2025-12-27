@@ -32,6 +32,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [pathEntries, setPathEntries] = useState<PathEntry[]>([])
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([])
+  const [backups, setBackups] = useState<string[]>([])
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
 
   useEffect(() => {
     loadVariables()
@@ -206,6 +208,34 @@ function App() {
       }
     }
 
+    const handleDragStart = (index: number) => {
+      setDraggedIndex(index)
+    }
+
+    const handleDragOver = (e: React.DragEvent, index: number) => {
+      e.preventDefault()
+      if (draggedIndex === null || draggedIndex === index) return
+
+      const newEntries = [...pathEntries]
+      const draggedItem = newEntries[draggedIndex]
+      newEntries.splice(draggedIndex, 1)
+      newEntries.splice(index, 0, draggedItem)
+      setPathEntries(newEntries)
+      setDraggedIndex(index)
+    }
+
+    const handleDragEnd = async () => {
+      if (draggedIndex === null) return
+      try {
+        const newPath = pathEntries.map(e => e.path).join(';')
+        await invoke('set_user_variable', { name: 'Path', value: newPath })
+        await loadVariables()
+      } catch (e) {
+        setError(String(e))
+      }
+      setDraggedIndex(null)
+    }
+
     if (pathEntries.length === 0 && pathValue) {
       loadPathAnalysis()
     }
@@ -219,10 +249,19 @@ function App() {
           </button>
         </div>
         {pathEntries.map((entry, idx) => (
-          <div key={idx} className="path-item" style={{
-            borderLeft: entry.has_variable ? '3px solid #89b4fa' : entry.valid ? '3px solid #a6e3a1' : '3px solid #f38ba8'
-          }}>
-            <span>{entry.path}</span>
+          <div
+            key={idx}
+            className="path-item"
+            draggable
+            onDragStart={() => handleDragStart(idx)}
+            onDragOver={(e) => handleDragOver(e, idx)}
+            onDragEnd={handleDragEnd}
+            style={{
+              borderLeft: entry.has_variable ? '3px solid #89b4fa' : entry.valid ? '3px solid #a6e3a1' : '3px solid #f38ba8',
+              cursor: 'move',
+              opacity: draggedIndex === idx ? 0.5 : 1
+            }}>
+            <span>⋮⋮ {entry.path}</span>
             {!entry.valid && !entry.has_variable && <span style={{color: '#f38ba8', marginLeft: '10px'}}>❌ 路径不存在</span>}
             {entry.has_variable && <span style={{color: '#89b4fa', marginLeft: '10px'}}>🔵 变量引用</span>}
           </div>
@@ -245,6 +284,67 @@ function App() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderBackup = () => {
+    const loadBackups = async () => {
+      try {
+        const list = await invoke<string[]>('list_backups')
+        setBackups(list)
+      } catch (e) {
+        setError(String(e))
+      }
+    }
+
+    const createBackup = async () => {
+      try {
+        const filename = await invoke<string>('create_backup')
+        alert(`备份已创建: ${filename}`)
+        loadBackups()
+      } catch (e) {
+        setError(String(e))
+      }
+    }
+
+    const restoreBackup = async (filename: string) => {
+      if (!confirm(`确定要恢复备份 "${filename}" 吗？`)) return
+      try {
+        await invoke('restore_backup', { filename })
+        await loadVariables()
+        alert('备份已恢复')
+      } catch (e) {
+        setError(String(e))
+      }
+    }
+
+    if (backups.length === 0) {
+      loadBackups()
+    }
+
+    return (
+      <div>
+        <div className="header">
+          <h1>备份管理</h1>
+          <button className="btn" onClick={createBackup}>
+            💾 创建备份
+          </button>
+        </div>
+        {backups.length === 0 ? (
+          <div>暂无备份</div>
+        ) : (
+          backups.map((filename, idx) => (
+            <div key={idx} className="var-card">
+              <div className="var-card-header">
+                <div className="var-name">{filename}</div>
+                <button className="btn" onClick={() => restoreBackup(filename)}>
+                  ↩️ 恢复
+                </button>
+              </div>
+            </div>
+          ))
         )}
       </div>
     )
@@ -275,7 +375,7 @@ function App() {
       <div className="content">
         {view === 'variables' && renderVariables()}
         {view === 'path' && renderPathEditor()}
-        {view === 'backup' && <div>备份管理功能开发中...</div>}
+        {view === 'backup' && renderBackup()}
         {view === 'optimizer' && <div>智能优化功能开发中...</div>}
       </div>
 

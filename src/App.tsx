@@ -187,6 +187,25 @@ function App() {
       }
     }
 
+    const applyOptimization = async (s: OptimizationSuggestion) => {
+      try {
+        // 1. 创建新变量
+        await invoke('set_user_variable', { name: s.var_name, value: s.var_value })
+
+        // 2. 更新 PATH
+        const paths = pathValue.split(';').filter(p => p.trim())
+        const updatedPaths = paths.map(p => p === s.old_path ? s.new_path : p)
+        await invoke('set_user_variable', { name: 'Path', value: updatedPaths.join(';') })
+
+        // 3. 重新加载
+        await loadVariables()
+        setSuggestions([])
+        setPathEntries([])
+      } catch (e) {
+        setError(String(e))
+      }
+    }
+
     if (pathEntries.length === 0 && pathValue) {
       loadPathAnalysis()
     }
@@ -215,6 +234,9 @@ function App() {
               <div key={idx} className="var-card">
                 <div className="var-card-header">
                   <div className="var-name">{s.description}</div>
+                  <button className="btn" onClick={() => applyOptimization(s)}>
+                    ✅ 应用
+                  </button>
                 </div>
                 <div className="var-value">
                   创建变量: {s.var_name} = {s.var_value}<br/>

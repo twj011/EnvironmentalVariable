@@ -5,6 +5,21 @@ interface EnvVars {
   [key: string]: string
 }
 
+interface PathEntry {
+  path: string
+  valid: boolean
+  has_variable: boolean
+}
+
+interface OptimizationSuggestion {
+  suggestion_type: string
+  var_name: string
+  var_value: string
+  old_path: string
+  new_path: string
+  description: string
+}
+
 type View = 'variables' | 'path' | 'backup' | 'optimizer'
 
 function App() {
@@ -14,6 +29,9 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editModal, setEditModal] = useState<{ name: string; value: string; type: 'user' | 'system' } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [pathEntries, setPathEntries] = useState<PathEntry[]>([])
+  const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([])
 
   useEffect(() => {
     loadVariables()
@@ -65,69 +83,147 @@ function App() {
     }
   }
 
-  const renderVariables = () => (
-    <div>
-      <div className="header">
-        <h1>环境变量</h1>
-        <button className="btn" onClick={() => setEditModal({ name: '', value: '', type: 'user' })}>
-          新建变量
-        </button>
+  const renderVariables = () => {
+    const filterVars = (vars: EnvVars) => {
+      if (!searchQuery) return vars
+      const filtered: EnvVars = {}
+      Object.entries(vars).forEach(([name, value]) => {
+        if (name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            value.toLowerCase().includes(searchQuery.toLowerCase())) {
+          filtered[name] = value
+        }
+      })
+      return filtered
+    }
+
+    const filteredUserVars = filterVars(userVars)
+    const filteredSystemVars = filterVars(systemVars)
+
+    return (
+      <div>
+        <div className="header">
+          <h1>环境变量</h1>
+          <input
+            type="text"
+            placeholder="🔍 搜索变量..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              borderRadius: '8px',
+              border: '1px solid #ccc',
+              marginRight: '10px',
+              minWidth: '200px'
+            }}
+          />
+          <button className="btn" onClick={() => setEditModal({ name: '', value: '', type: 'user' })}>
+            新建变量
+          </button>
+        </div>
+
+        {error && <div className="error">{error}</div>}
+
+        <h2 style={{ marginBottom: '16px' }}>用户变量 ({Object.keys(filteredUserVars).length})</h2>
+        {Object.entries(filteredUserVars).map(([name, value]) => (
+          <div key={name} className="var-card">
+            <div className="var-card-header">
+              <div className="var-name">{name}</div>
+              <div className="var-actions">
+                <button className="icon-btn" onClick={() => setEditModal({ name, value, type: 'user' })}>
+                  ✏️
+                </button>
+                <button className="icon-btn" onClick={() => handleDelete(name, 'user')}>
+                  🗑️
+                </button>
+              </div>
+            </div>
+            <div className="var-value">{value}</div>
+          </div>
+        ))}
+
+        <h2 style={{ margin: '32px 0 16px' }}>系统变量 ({Object.keys(filteredSystemVars).length})</h2>
+        {Object.entries(filteredSystemVars).map(([name, value]) => (
+          <div key={name} className="var-card">
+            <div className="var-card-header">
+              <div className="var-name">{name}</div>
+              <div className="var-actions">
+                <button className="icon-btn" onClick={() => setEditModal({ name, value, type: 'system' })}>
+                  ✏️
+                </button>
+                <button className="icon-btn" onClick={() => handleDelete(name, 'system')}>
+                  🗑️
+                </button>
+              </div>
+            </div>
+            <div className="var-value">{value}</div>
+          </div>
+        ))}
       </div>
-
-      {error && <div className="error">{error}</div>}
-
-      <h2 style={{ marginBottom: '16px' }}>用户变量</h2>
-      {Object.entries(userVars).map(([name, value]) => (
-        <div key={name} className="var-card">
-          <div className="var-card-header">
-            <div className="var-name">{name}</div>
-            <div className="var-actions">
-              <button className="icon-btn" onClick={() => setEditModal({ name, value, type: 'user' })}>
-                ✏️
-              </button>
-              <button className="icon-btn" onClick={() => handleDelete(name, 'user')}>
-                🗑️
-              </button>
-            </div>
-          </div>
-          <div className="var-value">{value}</div>
-        </div>
-      ))}
-
-      <h2 style={{ margin: '32px 0 16px' }}>系统变量</h2>
-      {Object.entries(systemVars).map(([name, value]) => (
-        <div key={name} className="var-card">
-          <div className="var-card-header">
-            <div className="var-name">{name}</div>
-            <div className="var-actions">
-              <button className="icon-btn" onClick={() => setEditModal({ name, value, type: 'system' })}>
-                ✏️
-              </button>
-              <button className="icon-btn" onClick={() => handleDelete(name, 'system')}>
-                🗑️
-              </button>
-            </div>
-          </div>
-          <div className="var-value">{value}</div>
-        </div>
-      ))}
-    </div>
-  )
+    )
+  }
 
   const renderPathEditor = () => {
     const pathValue = userVars.Path || ''
-    const paths = pathValue.split(';').filter(p => p.trim())
+
+    const loadPathAnalysis = async () => {
+      try {
+        const entries = await invoke<PathEntry[]>('analyze_path', { pathString: pathValue })
+        setPathEntries(entries)
+      } catch (e) {
+        setError(String(e))
+      }
+    }
+
+    const loadOptimizations = async () => {
+      try {
+        const allVars = { ...userVars, ...systemVars }
+        const opts = await invoke<OptimizationSuggestion[]>('suggest_optimizations', {
+          pathString: pathValue,
+          existingVars: allVars
+        })
+        setSuggestions(opts)
+      } catch (e) {
+        setError(String(e))
+      }
+    }
+
+    if (pathEntries.length === 0 && pathValue) {
+      loadPathAnalysis()
+    }
 
     return (
       <div>
         <div className="header">
           <h1>PATH 编辑器</h1>
+          <button className="btn" onClick={loadOptimizations}>
+            ✨ 智能优化
+          </button>
         </div>
-        {paths.map((path, idx) => (
-          <div key={idx} className="path-item">
-            <span>{path}</span>
+        {pathEntries.map((entry, idx) => (
+          <div key={idx} className="path-item" style={{
+            borderLeft: entry.has_variable ? '3px solid #89b4fa' : entry.valid ? '3px solid #a6e3a1' : '3px solid #f38ba8'
+          }}>
+            <span>{entry.path}</span>
+            {!entry.valid && !entry.has_variable && <span style={{color: '#f38ba8', marginLeft: '10px'}}>❌ 路径不存在</span>}
+            {entry.has_variable && <span style={{color: '#89b4fa', marginLeft: '10px'}}>🔵 变量引用</span>}
           </div>
         ))}
+        {suggestions.length > 0 && (
+          <div style={{marginTop: '20px'}}>
+            <h2>优化建议</h2>
+            {suggestions.map((s, idx) => (
+              <div key={idx} className="var-card">
+                <div className="var-card-header">
+                  <div className="var-name">{s.description}</div>
+                </div>
+                <div className="var-value">
+                  创建变量: {s.var_name} = {s.var_value}<br/>
+                  替换: {s.old_path} → {s.new_path}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     )
   }

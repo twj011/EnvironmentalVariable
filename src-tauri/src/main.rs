@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 use winreg::enums::*;
 use winreg::RegKey;
 
@@ -10,9 +11,116 @@ use winreg::RegKey;
 use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
 
 #[derive(Debug, Serialize, Deserialize)]
-struct EnvVariable {
-    name: String,
-    value: String,
+struct PathEntry {
+    path: String,
+    valid: bool,
+    has_variable: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OptimizationSuggestion {
+    suggestion_type: String,
+    var_name: String,
+    var_value: String,
+    old_path: String,
+    new_path: String,
+    description: String,
+}
+
+// 解析 PATH 字符串
+fn parse_path(path_string: &str) -> Vec<String> {
+    path_string.split(';')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+// 检查路径是否存在
+fn is_path_valid(path: &str) -> bool {
+    let expanded = expand_env_vars(path);
+    Path::new(&expanded).exists()
+}
+
+// 简单的环境变量展开
+fn expand_env_vars(path: &str) -> String {
+    let mut result = path.to_string();
+    if path.contains('%') {
+        for (key, value) in std::env::vars() {
+            let pattern = format!("%{}%", key);
+            result = result.replace(&pattern, &value);
+        }
+    }
+    result
+}
+
+// 检测软件类型
+fn detect_software(path: &str) -> Option<(&'static str, String)> {
+    let patterns = [
+        ("JAVA_HOME", vec![r"java[\\/]jdk", r"java.*[\\/]bin"]),
+        ("PYTHON_HOME", vec![r"Python3\d+", r"python"]),
+        ("NODE_HOME", vec![r"nodejs", r"node"]),
+        ("MAVEN_HOME", vec![r"apache-maven", r"maven"]),
+        ("GIT_HOME", vec![r"Git[\\/]cmd", r"git"]),
+        ("MATLAB_HOME", vec![r"MATLAB[\\/]R\d+"]),
+        ("GRADLE_HOME", vec![r"gradle"]),
+        ("CUDA_HOME", vec![r"CUDA[\\/]v\d+"]),
+    ];
+
+    for (var_name, patterns_list) in patterns.iter() {
+        for pattern in patterns_list {
+            if path.to_lowercase().contains(&pattern.to_lowercase().replace(r"[\\/]", "\\").replace(r"\d+", "")) {
+                let parts: Vec<&str> = path.split(&['\\', '/'][..]).collect();
+                if parts.len() >= 2 {
+                    let base = parts[..parts.len()-1].join("\\");
+                    return Some((var_name, base));
+                }
+            }
+        }
+    }
+    None
+}
+
+// 分析 PATH 并返回条目信息
+#[tauri::command]
+fn analyze_path(path_string: String) -> Result<Vec<PathEntry>, String> {
+    let paths = parse_path(&path_string);
+    let entries = paths.into_iter().map(|p| PathEntry {
+        valid: is_path_valid(&p),
+        has_variable: p.contains('%'),
+        path: p,
+    }).collect();
+    Ok(entries)
+}
+
+// 生成优化建议
+#[tauri::command]
+fn suggest_optimizations(path_string: String, existing_vars: HashMap<String, String>) -> Result<Vec<OptimizationSuggestion>, String> {
+    let paths = parse_path(&path_string);
+    let mut suggestions = Vec::new();
+
+    for path in paths.iter() {
+        if path.contains('%') {
+            continue;
+        }
+
+        if let Some((var_name, base_path)) = detect_software(path) {
+            if !existing_vars.contains_key(var_name) {
+                let parts: Vec<&str> = path.split(&['\\', '/'][..]).collect();
+                if let Some(suffix) = parts.last() {
+                    suggestions.push(OptimizationSuggestion {
+                        suggestion_type: "software".to_string(),
+                        var_name: var_name.to_string(),
+                        var_value: base_path.clone(),
+                        old_path: path.clone(),
+                        new_path: format!("%{}%\\{}", var_name, suffix),
+                        description: format!("检测到 {} 安装路径", var_name.replace("_HOME", "")),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(suggestions)
 }
 
 // 获取用户环境变量
@@ -130,6 +238,8 @@ fn main() {
             set_system_variable,
             delete_user_variable,
             delete_system_variable,
+            analyze_path,
+            suggest_optimizations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

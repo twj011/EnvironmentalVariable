@@ -20,7 +20,7 @@ interface OptimizationSuggestion {
   description: string
 }
 
-type View = 'variables' | 'path' | 'backup' | 'optimizer'
+type View = 'variables' | 'path' | 'backup'
 
 function App() {
   const [view, setView] = useState<View>('variables')
@@ -34,6 +34,7 @@ function App() {
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([])
   const [backups, setBackups] = useState<string[]>([])
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [varTab, setVarTab] = useState<'user' | 'system'>('user')
 
   useEffect(() => {
     loadVariables()
@@ -100,6 +101,7 @@ function App() {
 
     const filteredUserVars = filterVars(userVars)
     const filteredSystemVars = filterVars(systemVars)
+    const currentVars = varTab === 'user' ? filteredUserVars : filteredSystemVars
 
     return (
       <div>
@@ -118,41 +120,37 @@ function App() {
               minWidth: '200px'
             }}
           />
-          <button className="btn" onClick={() => setEditModal({ name: '', value: '', type: 'user' })}>
+          <button className="btn" onClick={() => setEditModal({ name: '', value: '', type: varTab })}>
             新建变量
           </button>
         </div>
 
         {error && <div className="error">{error}</div>}
 
-        <h2 style={{ marginBottom: '16px' }}>用户变量 ({Object.keys(filteredUserVars).length})</h2>
-        {Object.entries(filteredUserVars).map(([name, value]) => (
-          <div key={name} className="var-card">
-            <div className="var-card-header">
-              <div className="var-name">{name}</div>
-              <div className="var-actions">
-                <button className="icon-btn" onClick={() => setEditModal({ name, value, type: 'user' })}>
-                  ✏️
-                </button>
-                <button className="icon-btn" onClick={() => handleDelete(name, 'user')}>
-                  🗑️
-                </button>
-              </div>
-            </div>
-            <div className="var-value">{value}</div>
-          </div>
-        ))}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+          <button
+            className={varTab === 'user' ? 'btn' : 'btn'}
+            onClick={() => setVarTab('user')}
+            style={{ background: varTab === 'user' ? '#89b4fa' : '#45475a' }}>
+            用户变量 ({Object.keys(filteredUserVars).length})
+          </button>
+          <button
+            className={varTab === 'system' ? 'btn' : 'btn'}
+            onClick={() => setVarTab('system')}
+            style={{ background: varTab === 'system' ? '#89b4fa' : '#45475a' }}>
+            系统变量 ({Object.keys(filteredSystemVars).length})
+          </button>
+        </div>
 
-        <h2 style={{ margin: '32px 0 16px' }}>系统变量 ({Object.keys(filteredSystemVars).length})</h2>
-        {Object.entries(filteredSystemVars).map(([name, value]) => (
+        {Object.entries(currentVars).map(([name, value]) => (
           <div key={name} className="var-card">
             <div className="var-card-header">
               <div className="var-name">{name}</div>
               <div className="var-actions">
-                <button className="icon-btn" onClick={() => setEditModal({ name, value, type: 'system' })}>
+                <button className="icon-btn" onClick={() => setEditModal({ name, value, type: varTab })}>
                   ✏️
                 </button>
-                <button className="icon-btn" onClick={() => handleDelete(name, 'system')}>
+                <button className="icon-btn" onClick={() => handleDelete(name, varTab)}>
                   🗑️
                 </button>
               </div>
@@ -367,16 +365,12 @@ function App() {
         <div className={`nav-button ${view === 'backup' ? 'active' : ''}`} onClick={() => setView('backup')}>
           💾 备份管理
         </div>
-        <div className={`nav-button ${view === 'optimizer' ? 'active' : ''}`} onClick={() => setView('optimizer')}>
-          ✨ 智能优化
-        </div>
       </div>
 
       <div className="content">
         {view === 'variables' && renderVariables()}
         {view === 'path' && renderPathEditor()}
         {view === 'backup' && renderBackup()}
-        {view === 'optimizer' && <div>智能优化功能开发中...</div>}
       </div>
 
       {editModal && (

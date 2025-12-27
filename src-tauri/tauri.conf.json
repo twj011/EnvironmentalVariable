@@ -8,6 +8,17 @@
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "nsis"],
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    }
+  },
   "app": {
     "windows": [
       {
